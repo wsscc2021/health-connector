@@ -33,6 +33,7 @@ dependencies {
     implementation("androidx.health.connect:connect-client:1.1.0-rc01")
 
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.activity:activity-ktx:1.9.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
