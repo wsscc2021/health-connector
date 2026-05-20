@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  아이콘 구성:
+  - 흰색 하트: 러닝 중 심박수 모니터링을 상징
+  - 주황색 ECG 파형: 실시간 심박 데이터를 상징
+  Safe zone: 108x108 기준 중앙 72x72 (오프셋 18)
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 하트 (Material favorite 아이콘, 3배 스케일, 중앙 배치)
+         24x24 경로 → scale(3) + translate(18, 14) → 108x108 기준 (24,23)~(84,78) -->
+    <group
+        android:scaleX="3"
+        android:scaleY="3"
+        android:translateX="18"
+        android:translateY="14">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z" />
+    </group>
+
+    <!-- ECG 파형 (하트 중앙 y≈50 기준, 주황색) -->
+    <path
+        android:pathData="M30,50 L42,50 L46,28 L52,68 L56,28 L62,50 L78,50"
+        android:strokeColor="#FF5722"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+</vector>
