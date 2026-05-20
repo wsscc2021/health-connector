@@ -79,7 +79,7 @@ class HealthDataRepository(private val client: HealthConnectClient) {
     }
 
     suspend fun getHeartRateInSession(start: Instant, end: Instant): List<HeartRateSample> {
-        val result = mutableListOf<HeartRateSample>()
+        val rawSamples = mutableListOf<HeartRateRecord.Sample>()
         var pageToken: String? = null
 
         do {
@@ -90,12 +90,12 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                     pageToken = pageToken
                 )
             )
-            result.addAll(response.records.flatMap { it.samples })
+            rawSamples.addAll(response.records.flatMap { it.samples })
             pageToken = response.pageToken
         } while (pageToken != null)
 
         // 1분 단위 평균 집계
-        return result
+        return rawSamples
             .groupBy { it.time.epochSecond / 60 }
             .map { (minuteBucket, samples) ->
                 HeartRateSample(
