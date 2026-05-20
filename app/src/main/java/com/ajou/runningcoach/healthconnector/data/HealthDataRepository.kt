@@ -18,25 +18,14 @@ class HealthDataRepository(private val client: HealthConnectClient) {
 
     companion object {
         private const val TAG = "HealthDataRepository"
-
-        private val RUNNING_EXERCISE_TYPES = setOf(
-            ExerciseSessionRecord.EXERCISE_TYPE_RUNNING,
-            ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL,
-        )
     }
 
     suspend fun getExerciseSessions(start: Instant, end: Instant): List<RunningSession> {
         val allRecords = readAllExerciseSessionPages(start, end)
         Log.d(TAG, "전체 운동 세션 수: ${allRecords.size}")
+        Log.d(TAG, "운동 타입 목록: ${allRecords.map { it.exerciseType }.distinct()}")
 
-        val runningSessions = allRecords.filter { it.exerciseType in RUNNING_EXERCISE_TYPES }
-        Log.d(TAG, "러닝 세션 수: ${runningSessions.size}")
-
-        if (allRecords.isNotEmpty() && runningSessions.isEmpty()) {
-            Log.d(TAG, "운동 타입 목록: ${allRecords.map { it.exerciseType }.distinct()}")
-        }
-
-        return runningSessions.mapNotNull { session ->
+        return allRecords.mapNotNull { session ->
             try {
                 val heartRates = getHeartRateInSession(session.startTime, session.endTime)
                 val steps = getStepsInSession(session.startTime, session.endTime)
@@ -47,20 +36,21 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                     startTime = session.startTime,
                     endTime = session.endTime,
                     deviceModel = session.metadata.device?.model ?: "unknown",
+                    exerciseType = session.exerciseType,
                     heartRateSamples = heartRates,
                     totalSteps = steps,
                     totalDistanceMeters = distance
                 )
             } catch (e: CancellationException) {
-                throw e  // 코루틴 취소는 반드시 재전파
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "세션 ${session.metadata.id} 부가 데이터 로드 실패: ${e.message}")
-                // 부가 데이터 실패 시 기본값으로 세션 자체는 유지
                 RunningSession(
                     id = session.metadata.id,
                     startTime = session.startTime,
                     endTime = session.endTime,
-                    deviceModel = session.metadata.device?.model ?: "unknown"
+                    deviceModel = session.metadata.device?.model ?: "unknown",
+                    exerciseType = session.exerciseType
                 )
             }
         }

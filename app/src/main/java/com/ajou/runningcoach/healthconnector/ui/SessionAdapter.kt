@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import androidx.health.connect.client.records.ExerciseSessionRecord
 import com.ajou.runningcoach.healthconnector.data.model.RunningSession
 import com.ajou.runningcoach.healthconnector.databinding.ItemSessionBinding
 import java.time.ZoneId
@@ -38,7 +39,7 @@ class SessionAdapter : ListAdapter<RunningSession, SessionAdapter.ViewHolder>(Di
         RecyclerView.ViewHolder(binding.root) {
 
         fun bind(session: RunningSession) {
-            binding.tvDate.text = formatter.format(session.startTime)
+            binding.tvDate.text = "${formatter.format(session.startTime)}  [${exerciseTypeName(session.exerciseType)}]"
             binding.tvDistance.text = "거리: %.2f km".format(session.totalDistanceMeters / 1000)
             binding.tvSteps.text = "걸음수: ${session.totalSteps}"
 
@@ -68,4 +69,35 @@ class SessionAdapter : ListAdapter<RunningSession, SessionAdapter.ViewHolder>(Di
         override fun areItemsTheSame(a: RunningSession, b: RunningSession) = a.id == b.id
         override fun areContentsTheSame(a: RunningSession, b: RunningSession) = a == b
     }
+}
+
+private fun exerciseTypeName(type: Int): String = when (type) {
+    ExerciseSessionRecord.EXERCISE_TYPE_RUNNING -> "러닝"
+    ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL -> "트레드밀 러닝"
+    ExerciseSessionRecord.EXERCISE_TYPE_WALKING -> "걷기"
+    ExerciseSessionRecord.EXERCISE_TYPE_HIKING -> "하이킹"
+    ExerciseSessionRecord.EXERCISE_TYPE_CYCLING -> "자전거"
+    ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL -> "수영 (실내)"
+    ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_OPEN_WATER -> "수영 (오픈워터)"
+    ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING -> "근력 운동"
+    ExerciseSessionRecord.EXERCISE_TYPE_YOGA -> "요가"
+    ExerciseSessionRecord.EXERCISE_TYPE_PILATES -> "필라테스"
+    ExerciseSessionRecord.EXERCISE_TYPE_DANCING -> "댄스"
+    ExerciseSessionRecord.EXERCISE_TYPE_MARTIAL_ARTS -> "격투기"
+    ExerciseSessionRecord.EXERCISE_TYPE_TENNIS -> "테니스"
+    ExerciseSessionRecord.EXERCISE_TYPE_BADMINTON -> "배드민턴"
+    ExerciseSessionRecord.EXERCISE_TYPE_BASKETBALL -> "농구"
+    ExerciseSessionRecord.EXERCISE_TYPE_FOOTBALL_AMERICAN -> "미식축구"
+    ExerciseSessionRecord.EXERCISE_TYPE_FOOTBALL_AUSTRALIAN -> "호주식 축구"
+    ExerciseSessionRecord.EXERCISE_TYPE_SOCCER -> "축구"
+    ExerciseSessionRecord.EXERCISE_TYPE_VOLLEYBALL -> "배구"
+    ExerciseSessionRecord.EXERCISE_TYPE_ROWING -> "조정"
+    ExerciseSessionRecord.EXERCISE_TYPE_ROWING_MACHINE -> "로잉머신"
+    ExerciseSessionRecord.EXERCISE_TYPE_SKIING -> "스키"
+    ExerciseSessionRecord.EXERCISE_TYPE_SNOWBOARDING -> "스노보드"
+    ExerciseSessionRecord.EXERCISE_TYPE_GOLF -> "골프"
+    ExerciseSessionRecord.EXERCISE_TYPE_GYMNASTICS -> "체조"
+    ExerciseSessionRecord.EXERCISE_TYPE_EXERCISE_CLASS -> "운동 클래스"
+    ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT -> "기타 운동"
+    else -> "운동 ($type)"
 }
