@@ -73,9 +73,9 @@ class MainViewModel(
                 Log.d(TAG, "로드된 세션 수: ${sessions.size}")
 
                 _uiState.value = if (sessions.isEmpty()) {
-                    UiState.Error(
-                        title = "러닝 세션 없음",
-                        message = "2020년 이후 저장된 러닝 세션을 찾을 수 없습니다.\n\n확인해 주세요:\n" +
+                    UiState.Empty(
+                        message = "2020년 이후 저장된 러닝 세션이 없습니다.\n\n" +
+                            "다음 사항을 확인해 주세요:\n" +
                             "• Samsung Health → 설정 → Health Connect 연동 활성화\n" +
                             "• Health Connect 앱에서 Samsung Health 데이터 공유 허용\n" +
                             "• Samsung Health에서 러닝 운동이 기록되어 있는지 확인",
@@ -185,6 +185,7 @@ sealed class UiState {
     object Idle : UiState()
     data class Loading(val message: String) : UiState()
     data class Done(val uploaded: Int) : UiState()
+    data class Empty(val message: String, val action: ErrorAction = ErrorAction.None) : UiState()
     data class Error(
         val title: String,
         val message: String,

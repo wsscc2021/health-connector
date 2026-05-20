@@ -102,6 +102,8 @@
         android:text="러닝 세션이 없습니다."
         android:textAlignment="center"
         android:textColor="#888888"
+        android:lineSpacingMultiplier="1.4"
+        android:padding="16dp"
         android:visibility="gone" />
 
     <androidx.recyclerview.widget.RecyclerView
