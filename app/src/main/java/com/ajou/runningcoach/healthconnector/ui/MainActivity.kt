@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private val requestPermissions =
         registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
             if (granted.containsAll(viewModel.permissions)) {
-                viewModel.syncSessions()
+                viewModel.loadSessions()
             } else {
                 showErrorDialog(
                     title = "권한 허용 필요",
@@ -60,14 +60,19 @@ class MainActivity : AppCompatActivity() {
         client = HealthConnectClient.getOrCreate(this)
         binding.rvSessions.adapter = adapter
 
-        binding.btnSync.setOnClickListener {
+        binding.btnLoad.setOnClickListener {
             lifecycleScope.launch {
+                adapter.clearSelection()
                 if (viewModel.hasPermissions()) {
-                    viewModel.syncSessions()
+                    viewModel.loadSessions()
                 } else {
                     requestPermissions.launch(viewModel.permissions)
                 }
             }
+        }
+
+        binding.btnUpload.setOnClickListener {
+            viewModel.uploadSelected(adapter.getSelectedIds())
         }
 
         observeState()
@@ -81,7 +86,7 @@ class MainActivity : AppCompatActivity() {
                         when (state) {
                             is UiState.Idle -> {
                                 binding.progressBar.visibility = View.GONE
-                                binding.tvStatus.text = "동기화 버튼을 눌러 시작하세요."
+                                binding.tvStatus.text = "세션을 선택한 후 '선택 업로드'를 눌러주세요."
                             }
                             is UiState.Loading -> {
                                 binding.progressBar.visibility = View.VISIBLE
@@ -90,6 +95,7 @@ class MainActivity : AppCompatActivity() {
                             is UiState.Done -> {
                                 binding.progressBar.visibility = View.GONE
                                 binding.tvStatus.text = "${state.uploaded}개 세션 업로드 완료"
+                                adapter.clearSelection()
                             }
                             is UiState.Error -> {
                                 binding.progressBar.visibility = View.GONE
@@ -124,7 +130,7 @@ class MainActivity : AppCompatActivity() {
                 openSamsungHealth()
             }
             is ErrorAction.Retry -> builder.setPositiveButton("다시 시도") { _, _ ->
-                viewModel.syncSessions()
+                viewModel.loadSessions()
             }
             is ErrorAction.None -> Unit
         }
@@ -134,8 +140,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openHealthConnectPermissions() {
         try {
-            val intent = Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS")
-            startActivity(intent)
+            startActivity(Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS"))
         } catch (e: Exception) {
             Snackbar.make(binding.root, "Health Connect 앱을 찾을 수 없습니다.", Snackbar.LENGTH_SHORT).show()
         }
@@ -153,8 +158,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun showInstallPrompt() {
         binding.tvStatus.text = "Health Connect 앱 설치가 필요합니다."
-        binding.btnSync.text = "Health Connect 설치"
-        binding.btnSync.setOnClickListener {
+        binding.btnLoad.text = "Health Connect 설치"
+        binding.btnUpload.visibility = View.GONE
+        binding.btnLoad.setOnClickListener {
             startActivity(
                 Intent(Intent.ACTION_VIEW).apply {
                     data = Uri.parse(

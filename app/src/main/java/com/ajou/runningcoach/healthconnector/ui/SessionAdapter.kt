@@ -13,9 +13,17 @@ import kotlin.math.roundToInt
 
 class SessionAdapter : ListAdapter<RunningSession, SessionAdapter.ViewHolder>(DiffCallback()) {
 
+    private val selectedIds = mutableSetOf<String>()
     private val formatter = DateTimeFormatter
-        .ofPattern("MM/dd HH:mm")
+        .ofPattern("yyyy/MM/dd HH:mm")
         .withZone(ZoneId.systemDefault())
+
+    fun getSelectedIds(): Set<String> = selectedIds.toSet()
+
+    fun clearSelection() {
+        selectedIds.clear()
+        notifyItemRangeChanged(0, itemCount)
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemSessionBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -39,6 +47,20 @@ class SessionAdapter : ListAdapter<RunningSession, SessionAdapter.ViewHolder>(Di
             else 0
             binding.tvHeartRate.text = "평균 심박수: $avgBpm bpm"
             binding.tvSampleCount.text = "샘플 수: ${session.heartRateSamples.size}개 (1분 단위)"
+
+            // 선택 상태를 반영 (리사이클 시 이전 상태 덮어쓰기)
+            binding.checkbox.setOnCheckedChangeListener(null)
+            binding.checkbox.isChecked = session.id in selectedIds
+
+            binding.checkbox.setOnCheckedChangeListener { _, isChecked ->
+                if (isChecked) selectedIds.add(session.id)
+                else selectedIds.remove(session.id)
+            }
+
+            // 카드 전체를 눌러도 체크박스 토글
+            binding.root.setOnClickListener {
+                binding.checkbox.toggle()
+            }
         }
     }
 

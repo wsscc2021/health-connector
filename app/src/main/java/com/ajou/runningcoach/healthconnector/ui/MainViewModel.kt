@@ -38,11 +38,10 @@ class MainViewModel(
     private val _sessions = MutableStateFlow<List<RunningSession>>(emptyList())
     val sessions: StateFlow<List<RunningSession>> = _sessions
 
-    fun syncSessions(daysBack: Long = 7) {
+    fun loadSessions() {
         viewModelScope.launch {
-            _uiState.value = UiState.Loading("세션 조회 중...")
+            _uiState.value = UiState.Loading("세션 불러오는 중...")
 
-            // 권한 재확인 (동기화 시작 전)
             if (!hasPermissions()) {
                 _uiState.value = UiState.Error(
                     title = "권한 없음",
@@ -54,7 +53,7 @@ class MainViewModel(
 
             val sessions = runCatching {
                 repo.getExerciseSessions(
-                    start = Instant.now().minusSeconds(daysBack * 86400),
+                    start = Instant.EPOCH,
                     end = Instant.now()
                 )
             }.getOrElse { e ->
@@ -64,22 +63,39 @@ class MainViewModel(
 
             _sessions.value = sessions
 
-            if (sessions.isEmpty()) {
-                _uiState.value = UiState.Error(
+            _uiState.value = if (sessions.isEmpty()) {
+                UiState.Error(
                     title = "러닝 세션 없음",
-                    message = "최근 ${daysBack}일 내 러닝 세션을 찾을 수 없습니다.\n\n" +
+                    message = "저장된 러닝 세션을 찾을 수 없습니다.\n\n" +
                         "Samsung Health에서 운동을 기록했다면 아래를 확인해 주세요:\n" +
                         "• Samsung Health → 설정 → Health Connect 연동 활성화\n" +
                         "• Health Connect 앱에서 Samsung Health 데이터 공유 허용",
                     action = ErrorAction.OpenSamsungHealth
                 )
+            } else {
+                UiState.Idle
+            }
+        }
+    }
+
+    fun uploadSelected(selectedIds: Set<String>) {
+        viewModelScope.launch {
+            if (selectedIds.isEmpty()) {
+                _uiState.value = UiState.Error(
+                    title = "선택된 세션 없음",
+                    message = "업로드할 세션을 하나 이상 선택해 주세요.",
+                    action = ErrorAction.None
+                )
                 return@launch
             }
 
+            val targets = _sessions.value.filter { it.id in selectedIds }
+
             var uploaded = 0
             var failed = 0
-            sessions.forEachIndexed { idx, session ->
-                _uiState.value = UiState.Loading("업로드 중... (${idx + 1}/${sessions.size})")
+
+            targets.forEachIndexed { idx, session ->
+                _uiState.value = UiState.Loading("업로드 중... (${idx + 1}/${targets.size})")
                 uploader.upload(session)
                     .onSuccess { uploaded++ }
                     .onFailure { e ->
@@ -100,8 +116,7 @@ class MainViewModel(
             } else {
                 UiState.Error(
                     title = "일부 업로드 실패",
-                    message = "${sessions.size}개 세션 중 ${failed}개 업로드에 실패했습니다.\n" +
-                        "서버 상태를 확인하거나 잠시 후 다시 시도해 주세요.",
+                    message = "${targets.size}개 세션 중 ${failed}개 업로드에 실패했습니다.\n잠시 후 다시 시도해 주세요.",
                     action = ErrorAction.Retry
                 )
             }
