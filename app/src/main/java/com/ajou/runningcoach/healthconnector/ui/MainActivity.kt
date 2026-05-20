@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import androidx.activity.viewModels
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
@@ -38,12 +37,12 @@ class MainActivity : AppCompatActivity() {
             if (granted.containsAll(viewModel.permissions)) {
                 viewModel.loadSessions()
             } else {
-                // 일부 권한만 허용된 경우 어떤 권한이 빠졌는지 확인 가능하도록 안내
                 val missing = viewModel.permissions - granted
-                showDialog(
+                showError(
                     title = "권한 허용 필요",
-                    message = "다음 권한이 허용되지 않았습니다:\n${missing.joinToString("\n") { "• ${it.substringAfterLast('.')}" }}\n\n" +
-                        "Health Connect 앱 → 앱 권한 → 이 앱에서 다시 설정해 주세요.",
+                    message = "다음 권한이 허용되지 않았습니다:\n" +
+                        missing.joinToString("\n") { "• ${it.substringAfterLast('.')}" } +
+                        "\n\nHealth Connect 앱 → 앱 권한 → 이 앱에서 다시 설정해 주세요.",
                     action = ErrorAction.OpenPermissions
                 )
             }
@@ -63,17 +62,26 @@ class MainActivity : AppCompatActivity() {
         binding.rvSessions.adapter = adapter
 
         binding.btnLoad.setOnClickListener {
+            hideError()
             lifecycleScope.launch {
-                adapter.clearSelection()
-                if (viewModel.hasPermissions()) {
-                    viewModel.loadSessions()
-                } else {
-                    requestPermissions.launch(viewModel.permissions)
+                try {
+                    adapter.clearSelection()
+                    if (viewModel.hasPermissions()) {
+                        viewModel.loadSessions()
+                    } else {
+                        requestPermissions.launch(viewModel.permissions)
+                    }
+                } catch (e: Exception) {
+                    showError(
+                        title = "초기화 오류",
+                        message = "Health Connect 연결 중 오류가 발생했습니다.\n${e::class.simpleName}: ${e.message}"
+                    )
                 }
             }
         }
 
         binding.btnUpload.setOnClickListener {
+            hideError()
             viewModel.uploadSelected(adapter.getSelectedIds())
         }
 
@@ -85,82 +93,105 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.uiState.collect { state ->
-                        val isLoading = state is UiState.Loading
-                        // 로딩 중 버튼 비활성화로 중복 요청 방지
-                        binding.btnLoad.isEnabled = !isLoading
-                        binding.btnUpload.isEnabled = !isLoading
-
-                        when (state) {
-                            is UiState.Idle -> {
-                                binding.progressBar.visibility = View.GONE
-                                binding.tvStatus.text =
-                                    if (viewModel.sessions.value.isEmpty())
-                                        "세션 불러오기 버튼을 눌러 시작하세요."
-                                    else
-                                        "세션을 선택한 후 '선택 업로드'를 눌러주세요."
-                            }
-                            is UiState.Loading -> {
-                                binding.progressBar.visibility = View.VISIBLE
-                                binding.tvStatus.text = state.message
-                            }
-                            is UiState.Done -> {
-                                binding.progressBar.visibility = View.GONE
-                                binding.tvStatus.text = "${state.uploaded}개 세션 업로드 완료"
-                                adapter.clearSelection()
-                            }
-                            is UiState.Error -> {
-                                binding.progressBar.visibility = View.GONE
-                                binding.tvStatus.text = state.title
-                                when (state.style) {
-                                    ErrorStyle.Snackbar -> showSnackbar(state.message)
-                                    ErrorStyle.Dialog -> showDialog(state.title, state.message, state.action)
-                                }
-                            }
-                        }
+                        // 각 상태 처리에서 예외가 발생해도 collect 자체는 유지
+                        runCatching { handleState(state) }
                     }
                 }
                 launch {
                     viewModel.sessions.collect { sessions ->
-                        adapter.submitList(sessions)
-                        binding.tvEmpty.visibility =
-                            if (sessions.isEmpty()) View.VISIBLE else View.GONE
+                        runCatching {
+                            adapter.submitList(sessions)
+                            binding.tvEmpty.visibility =
+                                if (sessions.isEmpty()) View.VISIBLE else View.GONE
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun showSnackbar(message: String) {
-        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+    private fun handleState(state: UiState) {
+        val isLoading = state is UiState.Loading
+        binding.btnLoad.isEnabled = !isLoading
+        binding.btnUpload.isEnabled = !isLoading
+
+        when (state) {
+            is UiState.Idle -> {
+                binding.progressBar.visibility = View.GONE
+                binding.tvStatus.text =
+                    if (viewModel.sessions.value.isEmpty())
+                        "세션 불러오기 버튼을 눌러 시작하세요."
+                    else
+                        "세션을 선택한 후 '선택 업로드'를 눌러주세요."
+            }
+            is UiState.Loading -> {
+                binding.progressBar.visibility = View.VISIBLE
+                binding.tvStatus.text = state.message
+                hideError()
+            }
+            is UiState.Done -> {
+                binding.progressBar.visibility = View.GONE
+                binding.tvStatus.text = "${state.uploaded}개 세션 업로드 완료"
+                adapter.clearSelection()
+                hideError()
+            }
+            is UiState.Error -> {
+                binding.progressBar.visibility = View.GONE
+                binding.tvStatus.text = state.title
+                when (state.style) {
+                    // 가벼운 안내는 Snackbar로
+                    ErrorStyle.Snackbar -> Snackbar
+                        .make(binding.root, state.message, Snackbar.LENGTH_LONG)
+                        .show()
+                    // 세션 로드 실패 등 중요한 오류는 항상 화면에 표시
+                    ErrorStyle.Dialog -> showError(state.title, state.message, state.action)
+                }
+            }
+        }
     }
 
-    private fun showDialog(title: String, message: String, action: ErrorAction) {
-        val builder = AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setNegativeButton("닫기", null)
+    // 에러 카드를 화면에 표시 — 다이얼로그와 달리 항상 보임
+    private fun showError(
+        title: String,
+        message: String,
+        action: ErrorAction = ErrorAction.None
+    ) {
+        binding.cardError.visibility = View.VISIBLE
+        binding.tvErrorTitle.text = title
+        binding.tvErrorMessage.text = message
 
         when (action) {
-            is ErrorAction.OpenPermissions -> builder.setPositiveButton("권한 설정") { _, _ ->
-                openHealthConnectPermissions()
+            is ErrorAction.OpenPermissions -> {
+                binding.btnErrorAction.visibility = View.VISIBLE
+                binding.btnErrorAction.text = "권한 설정 열기"
+                binding.btnErrorAction.setOnClickListener { openHealthConnectPermissions() }
             }
-            is ErrorAction.OpenSamsungHealth -> builder.setPositiveButton("Samsung Health 열기") { _, _ ->
-                openSamsungHealth()
+            is ErrorAction.OpenSamsungHealth -> {
+                binding.btnErrorAction.visibility = View.VISIBLE
+                binding.btnErrorAction.text = "Samsung Health 열기"
+                binding.btnErrorAction.setOnClickListener { openSamsungHealth() }
             }
-            is ErrorAction.Retry -> builder.setPositiveButton("다시 시도") { _, _ ->
-                viewModel.loadSessions()
+            is ErrorAction.Retry -> {
+                binding.btnErrorAction.visibility = View.VISIBLE
+                binding.btnErrorAction.text = "다시 시도"
+                binding.btnErrorAction.setOnClickListener {
+                    hideError()
+                    viewModel.loadSessions()
+                }
             }
-            is ErrorAction.None -> Unit
+            is ErrorAction.None -> binding.btnErrorAction.visibility = View.GONE
         }
+    }
 
-        builder.show()
+    private fun hideError() {
+        binding.cardError.visibility = View.GONE
     }
 
     private fun openHealthConnectPermissions() {
         try {
             startActivity(Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS"))
         } catch (e: Exception) {
-            showSnackbar("Health Connect 앱을 찾을 수 없습니다.")
+            Snackbar.make(binding.root, "Health Connect 앱을 찾을 수 없습니다.", Snackbar.LENGTH_SHORT).show()
         }
     }
 
@@ -168,9 +199,9 @@ class MainActivity : AppCompatActivity() {
         try {
             val intent = packageManager.getLaunchIntentForPackage("com.sec.android.app.shealth")
             if (intent != null) startActivity(intent)
-            else showSnackbar("Samsung Health 앱을 찾을 수 없습니다.")
+            else Snackbar.make(binding.root, "Samsung Health 앱을 찾을 수 없습니다.", Snackbar.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            showSnackbar("Samsung Health 앱을 열 수 없습니다.")
+            Snackbar.make(binding.root, "Samsung Health 앱을 열 수 없습니다.", Snackbar.LENGTH_SHORT).show()
         }
     }
 
