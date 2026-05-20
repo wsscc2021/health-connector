@@ -1,5 +1,6 @@
 package com.ajou.runningcoach.healthconnector.data
 
+import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.records.DistanceRecord
@@ -14,17 +15,26 @@ import java.time.Instant
 
 class HealthDataRepository(private val client: HealthConnectClient) {
 
-    suspend fun getExerciseSessions(start: Instant, end: Instant): List<RunningSession> {
-        val response = client.readRecords(
-            ReadRecordsRequest(
-                recordType = ExerciseSessionRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(start, end)
-            )
-        )
+    companion object {
+        private const val TAG = "HealthDataRepository"
 
-        return response.records
-            .filter { it.exerciseType == ExerciseSessionRecord.EXERCISE_TYPE_RUNNING }
-            .map { session ->
+        // Samsung Health가 기록할 수 있는 러닝 관련 운동 타입
+        private val RUNNING_EXERCISE_TYPES = setOf(
+            ExerciseSessionRecord.EXERCISE_TYPE_RUNNING,
+            ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL,
+        )
+    }
+
+    suspend fun getExerciseSessions(start: Instant, end: Instant): List<RunningSession> {
+        val allRecords = readAllExerciseSessionPages(start, end)
+        Log.d(TAG, "전체 운동 세션 수: ${allRecords.size}")
+
+        val runningSessions = allRecords.filter { it.exerciseType in RUNNING_EXERCISE_TYPES }
+        Log.d(TAG, "러닝 세션 수: ${runningSessions.size}")
+
+        return runningSessions.mapNotNull { session ->
+            // 세션 하나의 부가 데이터 실패가 전체 로드를 막지 않도록 격리
+            runCatching {
                 val heartRates = getHeartRateInSession(session.startTime, session.endTime)
                 val steps = getStepsInSession(session.startTime, session.endTime)
                 val distance = getDistanceInSession(session.startTime, session.endTime)
@@ -38,20 +48,54 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                     totalSteps = steps,
                     totalDistanceMeters = distance
                 )
-            }
+            }.onFailure { e ->
+                Log.w(TAG, "세션 ${session.metadata.id} 데이터 로드 실패: ${e.message}")
+            }.getOrNull()
+        }
+    }
+
+    // Health Connect는 pageToken 기반 페이지네이션 — 전체 페이지를 순회해야 누락 없이 조회됨
+    private suspend fun readAllExerciseSessionPages(
+        start: Instant,
+        end: Instant
+    ): List<ExerciseSessionRecord> {
+        val result = mutableListOf<ExerciseSessionRecord>()
+        var pageToken: String? = null
+
+        do {
+            val response = client.readRecords(
+                ReadRecordsRequest(
+                    recordType = ExerciseSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, end),
+                    pageToken = pageToken
+                )
+            )
+            result.addAll(response.records)
+            pageToken = response.pageToken
+            Log.d(TAG, "페이지 로드: ${response.records.size}건, 다음 토큰: $pageToken")
+        } while (pageToken != null)
+
+        return result
     }
 
     suspend fun getHeartRateInSession(start: Instant, end: Instant): List<HeartRateSample> {
-        val response = client.readRecords(
-            ReadRecordsRequest(
-                recordType = HeartRateRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(start, end)
-            )
-        )
+        val result = mutableListOf<HeartRateSample>()
+        var pageToken: String? = null
 
-        // 1분 단위 평균 집계: 같은 분에 측정된 샘플들을 묶어 평균 bpm 계산
-        return response.records
-            .flatMap { it.samples }
+        do {
+            val response = client.readRecords(
+                ReadRecordsRequest(
+                    recordType = HeartRateRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, end),
+                    pageToken = pageToken
+                )
+            )
+            result.addAll(response.records.flatMap { it.samples })
+            pageToken = response.pageToken
+        } while (pageToken != null)
+
+        // 1분 단위 평균 집계
+        return result
             .groupBy { it.time.epochSecond / 60 }
             .map { (minuteBucket, samples) ->
                 HeartRateSample(

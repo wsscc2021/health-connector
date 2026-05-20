@@ -66,8 +66,7 @@ class MainViewModel(
             _uiState.value = if (sessions.isEmpty()) {
                 UiState.Error(
                     title = "러닝 세션 없음",
-                    message = "저장된 러닝 세션을 찾을 수 없습니다.\n\n" +
-                        "Samsung Health에서 운동을 기록했다면 아래를 확인해 주세요:\n" +
+                    message = "저장된 러닝 세션을 찾을 수 없습니다.\n\n확인해 주세요:\n" +
                         "• Samsung Health → 설정 → Health Connect 연동 활성화\n" +
                         "• Health Connect 앱에서 Samsung Health 데이터 공유 허용",
                     action = ErrorAction.OpenSamsungHealth
@@ -79,16 +78,17 @@ class MainViewModel(
     }
 
     fun uploadSelected(selectedIds: Set<String>) {
-        viewModelScope.launch {
-            if (selectedIds.isEmpty()) {
-                _uiState.value = UiState.Error(
-                    title = "선택된 세션 없음",
-                    message = "업로드할 세션을 하나 이상 선택해 주세요.",
-                    action = ErrorAction.None
-                )
-                return@launch
-            }
+        if (selectedIds.isEmpty()) {
+            _uiState.value = UiState.Error(
+                title = "선택된 세션 없음",
+                message = "업로드할 세션을 하나 이상 선택해 주세요.",
+                action = ErrorAction.None,
+                style = ErrorStyle.Snackbar
+            )
+            return
+        }
 
+        viewModelScope.launch {
             val targets = _sessions.value.filter { it.id in selectedIds }
 
             var uploaded = 0
@@ -136,7 +136,7 @@ class MainViewModel(
         )
         else -> UiState.Error(
             title = "데이터 읽기 실패",
-            message = "Health Connect에서 데이터를 읽는 중 오류가 발생했습니다.\n${e.message}",
+            message = "세션을 불러오는 중 오류가 발생했습니다.\n${e.message}",
             action = ErrorAction.Retry
         )
     }
@@ -154,9 +154,12 @@ sealed class UiState {
     data class Error(
         val title: String,
         val message: String,
-        val action: ErrorAction = ErrorAction.None
+        val action: ErrorAction = ErrorAction.None,
+        val style: ErrorStyle = ErrorStyle.Dialog
     ) : UiState()
 }
+
+enum class ErrorStyle { Dialog, Snackbar }
 
 sealed class ErrorAction {
     object None : ErrorAction()

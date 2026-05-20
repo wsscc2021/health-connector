@@ -38,10 +38,12 @@ class MainActivity : AppCompatActivity() {
             if (granted.containsAll(viewModel.permissions)) {
                 viewModel.loadSessions()
             } else {
-                showErrorDialog(
+                // 일부 권한만 허용된 경우 어떤 권한이 빠졌는지 확인 가능하도록 안내
+                val missing = viewModel.permissions - granted
+                showDialog(
                     title = "권한 허용 필요",
-                    message = "모든 Health Connect 권한을 허용해야 데이터를 불러올 수 있습니다.\n" +
-                        "Health Connect 앱 → 앱 권한 → 이 앱에서 권한을 다시 설정해 주세요.",
+                    message = "다음 권한이 허용되지 않았습니다:\n${missing.joinToString("\n") { "• ${it.substringAfterLast('.')}" }}\n\n" +
+                        "Health Connect 앱 → 앱 권한 → 이 앱에서 다시 설정해 주세요.",
                     action = ErrorAction.OpenPermissions
                 )
             }
@@ -83,10 +85,19 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.uiState.collect { state ->
+                        val isLoading = state is UiState.Loading
+                        // 로딩 중 버튼 비활성화로 중복 요청 방지
+                        binding.btnLoad.isEnabled = !isLoading
+                        binding.btnUpload.isEnabled = !isLoading
+
                         when (state) {
                             is UiState.Idle -> {
                                 binding.progressBar.visibility = View.GONE
-                                binding.tvStatus.text = "세션을 선택한 후 '선택 업로드'를 눌러주세요."
+                                binding.tvStatus.text =
+                                    if (viewModel.sessions.value.isEmpty())
+                                        "세션 불러오기 버튼을 눌러 시작하세요."
+                                    else
+                                        "세션을 선택한 후 '선택 업로드'를 눌러주세요."
                             }
                             is UiState.Loading -> {
                                 binding.progressBar.visibility = View.VISIBLE
@@ -100,7 +111,10 @@ class MainActivity : AppCompatActivity() {
                             is UiState.Error -> {
                                 binding.progressBar.visibility = View.GONE
                                 binding.tvStatus.text = state.title
-                                showErrorDialog(state.title, state.message, state.action)
+                                when (state.style) {
+                                    ErrorStyle.Snackbar -> showSnackbar(state.message)
+                                    ErrorStyle.Dialog -> showDialog(state.title, state.message, state.action)
+                                }
                             }
                         }
                     }
@@ -116,7 +130,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showErrorDialog(title: String, message: String, action: ErrorAction) {
+    private fun showSnackbar(message: String) {
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+    }
+
+    private fun showDialog(title: String, message: String, action: ErrorAction) {
         val builder = AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
@@ -142,7 +160,7 @@ class MainActivity : AppCompatActivity() {
         try {
             startActivity(Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS"))
         } catch (e: Exception) {
-            Snackbar.make(binding.root, "Health Connect 앱을 찾을 수 없습니다.", Snackbar.LENGTH_SHORT).show()
+            showSnackbar("Health Connect 앱을 찾을 수 없습니다.")
         }
     }
 
@@ -150,9 +168,9 @@ class MainActivity : AppCompatActivity() {
         try {
             val intent = packageManager.getLaunchIntentForPackage("com.sec.android.app.shealth")
             if (intent != null) startActivity(intent)
-            else Snackbar.make(binding.root, "Samsung Health 앱을 찾을 수 없습니다.", Snackbar.LENGTH_SHORT).show()
+            else showSnackbar("Samsung Health 앱을 찾을 수 없습니다.")
         } catch (e: Exception) {
-            Snackbar.make(binding.root, "Samsung Health 앱을 열 수 없습니다.", Snackbar.LENGTH_SHORT).show()
+            showSnackbar("Samsung Health 앱을 열 수 없습니다.")
         }
     }
 
