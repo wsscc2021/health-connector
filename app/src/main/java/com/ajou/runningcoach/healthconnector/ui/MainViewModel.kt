@@ -51,45 +51,43 @@ class MainViewModel(
 
     fun loadSessions() {
         viewModelScope.launch {
-            _uiState.value = UiState.Loading("세션 불러오는 중...")
+            // 외부 try-catch: hasPermissions() 등 어디서든 예외가 발생해도 반드시 에러 상태로 전환
+            try {
+                _uiState.value = UiState.Loading("세션 불러오는 중...")
 
-            if (!hasPermissions()) {
-                _uiState.value = UiState.Error(
-                    title = "권한 없음",
-                    message = "Health Connect 데이터 읽기 권한이 허용되지 않았습니다.\n권한 설정에서 모든 항목을 허용해 주세요.",
-                    action = ErrorAction.OpenPermissions
-                )
-                return@launch
-            }
+                val sessions = try {
+                    repo.getExerciseSessions(
+                        start = SESSION_QUERY_START,
+                        end = Instant.now()
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "세션 로드 실패: ${e::class.simpleName} - ${e.message}", e)
+                    _uiState.value = classifyReadError(e)
+                    return@launch
+                }
 
-            // runCatching 대신 명시적 try-catch — CancellationException은 반드시 재전파
-            val sessions = try {
-                repo.getExerciseSessions(
-                    start = SESSION_QUERY_START,
-                    end = java.time.Instant.now()
-                )
+                _sessions.value = sessions
+                Log.d(TAG, "로드된 세션 수: ${sessions.size}")
+
+                _uiState.value = if (sessions.isEmpty()) {
+                    UiState.Error(
+                        title = "러닝 세션 없음",
+                        message = "2020년 이후 저장된 러닝 세션을 찾을 수 없습니다.\n\n확인해 주세요:\n" +
+                            "• Samsung Health → 설정 → Health Connect 연동 활성화\n" +
+                            "• Health Connect 앱에서 Samsung Health 데이터 공유 허용\n" +
+                            "• Samsung Health에서 러닝 운동이 기록되어 있는지 확인",
+                        action = ErrorAction.OpenSamsungHealth
+                    )
+                } else {
+                    UiState.Idle
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "세션 로드 실패: ${e::class.simpleName} - ${e.message}", e)
+                Log.e(TAG, "loadSessions 예기치 못한 오류: ${e::class.simpleName} - ${e.message}", e)
                 _uiState.value = classifyReadError(e)
-                return@launch
-            }
-
-            _sessions.value = sessions
-            Log.d(TAG, "로드된 세션 수: ${sessions.size}")
-
-            _uiState.value = if (sessions.isEmpty()) {
-                UiState.Error(
-                    title = "러닝 세션 없음",
-                    message = "2020년 이후 저장된 러닝 세션을 찾을 수 없습니다.\n\n확인해 주세요:\n" +
-                        "• Samsung Health → 설정 → Health Connect 연동 활성화\n" +
-                        "• Health Connect 앱에서 Samsung Health 데이터 공유 허용\n" +
-                        "• Samsung Health에서 러닝 운동이 기록되어 있는지 확인",
-                    action = ErrorAction.OpenSamsungHealth
-                )
-            } else {
-                UiState.Idle
             }
         }
     }
@@ -106,38 +104,49 @@ class MainViewModel(
         }
 
         viewModelScope.launch {
-            val targets = _sessions.value.filter { it.id in selectedIds }
+            try {
+                val targets = _sessions.value.filter { it.id in selectedIds }
 
-            var uploaded = 0
-            var failed = 0
+                var uploaded = 0
+                var failed = 0
 
-            targets.forEachIndexed { idx, session ->
-                _uiState.value = UiState.Loading("업로드 중... (${idx + 1}/${targets.size})")
-                try {
-                    uploader.upload(session).getOrThrow()
-                    uploaded++
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: IOException) {
-                    failed++
-                    _uiState.value = UiState.Error(
-                        title = "네트워크 오류",
-                        message = "서버에 연결할 수 없습니다.\n인터넷 연결을 확인한 후 다시 시도해 주세요.",
+                targets.forEachIndexed { idx, session ->
+                    _uiState.value = UiState.Loading("업로드 중... (${idx + 1}/${targets.size})")
+                    try {
+                        uploader.upload(session).getOrThrow()
+                        uploaded++
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: IOException) {
+                        failed++
+                        _uiState.value = UiState.Error(
+                            title = "네트워크 오류",
+                            message = "서버에 연결할 수 없습니다.\n인터넷 연결을 확인한 후 다시 시도해 주세요.",
+                            action = ErrorAction.Retry
+                        )
+                        return@launch
+                    } catch (e: Exception) {
+                        failed++
+                        Log.e(TAG, "세션 업로드 실패: ${e.message}", e)
+                    }
+                }
+
+                _uiState.value = if (failed == 0) {
+                    UiState.Done(uploaded = uploaded)
+                } else {
+                    UiState.Error(
+                        title = "일부 업로드 실패",
+                        message = "${targets.size}개 세션 중 ${failed}개 업로드에 실패했습니다.\n잠시 후 다시 시도해 주세요.",
                         action = ErrorAction.Retry
                     )
-                    return@launch
-                } catch (e: Exception) {
-                    failed++
-                    Log.e(TAG, "세션 업로드 실패: ${e.message}", e)
                 }
-            }
-
-            _uiState.value = if (failed == 0) {
-                UiState.Done(uploaded = uploaded)
-            } else {
-                UiState.Error(
-                    title = "일부 업로드 실패",
-                    message = "${targets.size}개 세션 중 ${failed}개 업로드에 실패했습니다.\n잠시 후 다시 시도해 주세요.",
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "uploadSelected 예기치 못한 오류: ${e::class.simpleName} - ${e.message}", e)
+                _uiState.value = UiState.Error(
+                    title = "업로드 오류",
+                    message = "업로드 중 예기치 못한 오류가 발생했습니다.\n${e::class.simpleName}: ${e.message}",
                     action = ErrorAction.Retry
                 )
             }
