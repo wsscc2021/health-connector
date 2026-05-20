@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import androidx.activity.viewModels
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
@@ -37,7 +38,12 @@ class MainActivity : AppCompatActivity() {
             if (granted.containsAll(viewModel.permissions)) {
                 viewModel.syncSessions()
             } else {
-                Snackbar.make(binding.root, "Health Connect 권한이 필요합니다.", Snackbar.LENGTH_LONG).show()
+                showErrorDialog(
+                    title = "권한 허용 필요",
+                    message = "모든 Health Connect 권한을 허용해야 데이터를 불러올 수 있습니다.\n" +
+                        "Health Connect 앱 → 앱 권한 → 이 앱에서 권한을 다시 설정해 주세요.",
+                    action = ErrorAction.OpenPermissions
+                )
             }
         }
 
@@ -87,8 +93,8 @@ class MainActivity : AppCompatActivity() {
                             }
                             is UiState.Error -> {
                                 binding.progressBar.visibility = View.GONE
-                                binding.tvStatus.text = "오류: ${state.message}"
-                                Snackbar.make(binding.root, state.message, Snackbar.LENGTH_LONG).show()
+                                binding.tvStatus.text = state.title
+                                showErrorDialog(state.title, state.message, state.action)
                             }
                         }
                     }
@@ -101,6 +107,47 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun showErrorDialog(title: String, message: String, action: ErrorAction) {
+        val builder = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("닫기", null)
+
+        when (action) {
+            is ErrorAction.OpenPermissions -> builder.setPositiveButton("권한 설정") { _, _ ->
+                openHealthConnectPermissions()
+            }
+            is ErrorAction.OpenSamsungHealth -> builder.setPositiveButton("Samsung Health 열기") { _, _ ->
+                openSamsungHealth()
+            }
+            is ErrorAction.Retry -> builder.setPositiveButton("다시 시도") { _, _ ->
+                viewModel.syncSessions()
+            }
+            is ErrorAction.None -> Unit
+        }
+
+        builder.show()
+    }
+
+    private fun openHealthConnectPermissions() {
+        try {
+            val intent = Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS")
+            startActivity(intent)
+        } catch (e: Exception) {
+            Snackbar.make(binding.root, "Health Connect 앱을 찾을 수 없습니다.", Snackbar.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openSamsungHealth() {
+        try {
+            val intent = packageManager.getLaunchIntentForPackage("com.sec.android.app.shealth")
+            if (intent != null) startActivity(intent)
+            else Snackbar.make(binding.root, "Samsung Health 앱을 찾을 수 없습니다.", Snackbar.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Snackbar.make(binding.root, "Samsung Health 앱을 열 수 없습니다.", Snackbar.LENGTH_SHORT).show()
         }
     }
 

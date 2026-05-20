@@ -15,6 +15,7 @@ import com.ajou.runningcoach.healthconnector.data.model.RunningSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.time.Instant
 
 class MainViewModel(
@@ -41,31 +42,88 @@ class MainViewModel(
         viewModelScope.launch {
             _uiState.value = UiState.Loading("세션 조회 중...")
 
-            runCatching {
+            // 권한 재확인 (동기화 시작 전)
+            if (!hasPermissions()) {
+                _uiState.value = UiState.Error(
+                    title = "권한 없음",
+                    message = "Health Connect 데이터 읽기 권한이 허용되지 않았습니다.\n권한 설정에서 모든 항목을 허용해 주세요.",
+                    action = ErrorAction.OpenPermissions
+                )
+                return@launch
+            }
+
+            val sessions = runCatching {
                 repo.getExerciseSessions(
                     start = Instant.now().minusSeconds(daysBack * 86400),
                     end = Instant.now()
                 )
-            }.onFailure { e ->
-                _uiState.value = UiState.Error(e.message ?: "알 수 없는 오류")
+            }.getOrElse { e ->
+                _uiState.value = classifyReadError(e)
                 return@launch
-            }.onSuccess { sessions ->
-                _sessions.value = sessions
+            }
 
-                if (sessions.isEmpty()) {
-                    _uiState.value = UiState.Done(uploaded = 0)
-                    return@launch
-                }
+            _sessions.value = sessions
 
-                var uploaded = 0
-                sessions.forEachIndexed { idx, session ->
-                    _uiState.value = UiState.Loading("업로드 중... (${idx + 1}/${sessions.size})")
-                    uploader.upload(session).onSuccess { uploaded++ }
-                }
+            if (sessions.isEmpty()) {
+                _uiState.value = UiState.Error(
+                    title = "러닝 세션 없음",
+                    message = "최근 ${daysBack}일 내 러닝 세션을 찾을 수 없습니다.\n\n" +
+                        "Samsung Health에서 운동을 기록했다면 아래를 확인해 주세요:\n" +
+                        "• Samsung Health → 설정 → Health Connect 연동 활성화\n" +
+                        "• Health Connect 앱에서 Samsung Health 데이터 공유 허용",
+                    action = ErrorAction.OpenSamsungHealth
+                )
+                return@launch
+            }
 
-                _uiState.value = UiState.Done(uploaded)
+            var uploaded = 0
+            var failed = 0
+            sessions.forEachIndexed { idx, session ->
+                _uiState.value = UiState.Loading("업로드 중... (${idx + 1}/${sessions.size})")
+                uploader.upload(session)
+                    .onSuccess { uploaded++ }
+                    .onFailure { e ->
+                        failed++
+                        if (e is IOException) {
+                            _uiState.value = UiState.Error(
+                                title = "네트워크 오류",
+                                message = "서버에 연결할 수 없습니다.\n인터넷 연결을 확인한 후 다시 시도해 주세요.",
+                                action = ErrorAction.Retry
+                            )
+                            return@launch
+                        }
+                    }
+            }
+
+            _uiState.value = if (failed == 0) {
+                UiState.Done(uploaded = uploaded)
+            } else {
+                UiState.Error(
+                    title = "일부 업로드 실패",
+                    message = "${sessions.size}개 세션 중 ${failed}개 업로드에 실패했습니다.\n" +
+                        "서버 상태를 확인하거나 잠시 후 다시 시도해 주세요.",
+                    action = ErrorAction.Retry
+                )
             }
         }
+    }
+
+    private fun classifyReadError(e: Throwable): UiState.Error = when (e) {
+        is SecurityException -> UiState.Error(
+            title = "권한 오류",
+            message = "Health Connect 데이터에 접근할 권한이 없습니다.\n권한 설정을 다시 확인해 주세요.",
+            action = ErrorAction.OpenPermissions
+        )
+        is IOException -> UiState.Error(
+            title = "연결 오류",
+            message = "Health Connect와 통신 중 오류가 발생했습니다.\n잠시 후 다시 시도해 주세요.",
+            action = ErrorAction.Retry
+        )
+        else -> UiState.Error(
+            title = "데이터 읽기 실패",
+            message = "Health Connect에서 데이터를 읽는 중 오류가 발생했습니다.\n${e.message}",
+            action = ErrorAction.Retry
+        )
     }
 
     suspend fun hasPermissions(): Boolean {
@@ -78,5 +136,16 @@ sealed class UiState {
     object Idle : UiState()
     data class Loading(val message: String) : UiState()
     data class Done(val uploaded: Int) : UiState()
-    data class Error(val message: String) : UiState()
+    data class Error(
+        val title: String,
+        val message: String,
+        val action: ErrorAction = ErrorAction.None
+    ) : UiState()
+}
+
+sealed class ErrorAction {
+    object None : ErrorAction()
+    object OpenPermissions : ErrorAction()
+    object OpenSamsungHealth : ErrorAction()
+    object Retry : ErrorAction()
 }
