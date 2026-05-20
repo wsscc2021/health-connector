@@ -59,6 +59,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         client = HealthConnectClient.getOrCreate(this)
+        binding.rvSessions.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         binding.rvSessions.adapter = adapter
 
         binding.btnLoad.setOnClickListener {
