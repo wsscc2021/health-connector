@@ -11,6 +11,7 @@ import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import com.ajou.runningcoach.healthconnector.data.model.HeartRateSample
 import com.ajou.runningcoach.healthconnector.data.model.RunningSession
+import kotlinx.coroutines.CancellationException
 import java.time.Instant
 
 class HealthDataRepository(private val client: HealthConnectClient) {
@@ -18,7 +19,6 @@ class HealthDataRepository(private val client: HealthConnectClient) {
     companion object {
         private const val TAG = "HealthDataRepository"
 
-        // Samsung Health가 기록할 수 있는 러닝 관련 운동 타입
         private val RUNNING_EXERCISE_TYPES = setOf(
             ExerciseSessionRecord.EXERCISE_TYPE_RUNNING,
             ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL,
@@ -32,9 +32,12 @@ class HealthDataRepository(private val client: HealthConnectClient) {
         val runningSessions = allRecords.filter { it.exerciseType in RUNNING_EXERCISE_TYPES }
         Log.d(TAG, "러닝 세션 수: ${runningSessions.size}")
 
+        if (allRecords.isNotEmpty() && runningSessions.isEmpty()) {
+            Log.d(TAG, "운동 타입 목록: ${allRecords.map { it.exerciseType }.distinct()}")
+        }
+
         return runningSessions.mapNotNull { session ->
-            // 세션 하나의 부가 데이터 실패가 전체 로드를 막지 않도록 격리
-            runCatching {
+            try {
                 val heartRates = getHeartRateInSession(session.startTime, session.endTime)
                 val steps = getStepsInSession(session.startTime, session.endTime)
                 val distance = getDistanceInSession(session.startTime, session.endTime)
@@ -48,13 +51,21 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                     totalSteps = steps,
                     totalDistanceMeters = distance
                 )
-            }.onFailure { e ->
-                Log.w(TAG, "세션 ${session.metadata.id} 데이터 로드 실패: ${e.message}")
-            }.getOrNull()
+            } catch (e: CancellationException) {
+                throw e  // 코루틴 취소는 반드시 재전파
+            } catch (e: Exception) {
+                Log.w(TAG, "세션 ${session.metadata.id} 부가 데이터 로드 실패: ${e.message}")
+                // 부가 데이터 실패 시 기본값으로 세션 자체는 유지
+                RunningSession(
+                    id = session.metadata.id,
+                    startTime = session.startTime,
+                    endTime = session.endTime,
+                    deviceModel = session.metadata.device?.model ?: "unknown"
+                )
+            }
         }
     }
 
-    // Health Connect는 pageToken 기반 페이지네이션 — 전체 페이지를 순회해야 누락 없이 조회됨
     private suspend fun readAllExerciseSessionPages(
         start: Instant,
         end: Instant
@@ -94,7 +105,6 @@ class HealthDataRepository(private val client: HealthConnectClient) {
             pageToken = response.pageToken
         } while (pageToken != null)
 
-        // 1분 단위 평균 집계
         return rawSamples
             .groupBy { it.time.epochSecond / 60 }
             .map { (minuteBucket, samples) ->
