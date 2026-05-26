@@ -142,10 +142,7 @@ class MainActivity : AppCompatActivity() {
                 binding.tvEmpty.text = state.message
                 binding.tvEmpty.visibility = View.VISIBLE
                 hideError()
-                // Samsung Health 열기 버튼을 Snackbar로 제공
-                Snackbar.make(binding.root, "Samsung Health 연동을 확인해 주세요.", Snackbar.LENGTH_LONG)
-                    .setAction("Samsung Health 열기") { openSamsungHealth() }
-                    .show()
+                showEmptySessionDialog(state.action)
             }
             is UiState.Error -> {
                 binding.progressBar.visibility = View.GONE
@@ -193,6 +190,23 @@ class MainActivity : AppCompatActivity() {
             }
             is ErrorAction.None -> binding.btnErrorAction.visibility = View.GONE
         }
+    }
+
+    private fun showEmptySessionDialog(action: ErrorAction) {
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("세션 없음")
+            .setMessage(
+                "불러온 세션이 없습니다.\n\n" +
+                "Samsung Health → 설정 → Health Connect 연동이\n" +
+                "활성화되어 있는지 확인해 주세요."
+            )
+            .setNegativeButton("닫기", null)
+
+        if (action is ErrorAction.OpenSamsungHealth) {
+            builder.setPositiveButton("Samsung Health 열기") { _, _ -> openSamsungHealth() }
+        }
+
+        builder.show()
     }
 
     private fun hideError() {
