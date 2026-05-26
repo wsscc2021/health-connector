@@ -17,6 +17,17 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField("String", "BASE_URL", "\"http://running.wsk-skill53.link\"")
+        }
+        release {
+            buildConfigField("String", "BASE_URL", "\"https://running.wsk-skill53.link\"")
+            isMinifyEnabled = false
+        }
     }
 
     compileOptions {
