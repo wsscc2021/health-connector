@@ -3,6 +3,7 @@ package com.ajou.runningcoach.healthconnector
 import com.ajou.runningcoach.healthconnector.data.model.BioEvent
 import com.ajou.runningcoach.healthconnector.data.model.BioEventRequest
 import com.ajou.runningcoach.healthconnector.data.model.RunningSession
+import com.ajou.runningcoach.healthconnector.data.model.SessionRequest
 import com.ajou.runningcoach.healthconnector.data.remote.BioApi
 
 class SessionUploader(
@@ -11,6 +12,20 @@ class SessionUploader(
 ) {
 
     suspend fun upload(session: RunningSession): Result<Unit> = runCatching {
+        // 세션 메타데이터 먼저 저장
+        val sessionResponse = api.postSession(
+            SessionRequest(
+                sessionId = session.id,
+                userId = userId,
+                deviceId = session.deviceModel,
+                startTime = session.startTime.toString(),
+                endTime = session.endTime.toString()
+            )
+        )
+        if (!sessionResponse.isSuccessful) {
+            error("세션 저장 오류: ${sessionResponse.code()} ${sessionResponse.message()}")
+        }
+
         val events = buildEvents(session)
         if (events.isEmpty()) return@runCatching
 

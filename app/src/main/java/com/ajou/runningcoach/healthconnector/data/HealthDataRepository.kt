@@ -187,19 +187,48 @@ class HealthDataRepository(private val client: HealthConnectClient) {
             pageToken = response.pageToken
         } while (pageToken != null)
 
-        return records
-            .groupBy { it.startTime.epochSecond / 60 }
-            .map { (minuteBucket, bucketRecords) ->
-                val totalSteps = bucketRecords.sumOf { it.count }
-                val totalSeconds = bucketRecords
-                    .sumOf { it.endTime.epochSecond - it.startTime.epochSecond }
-                    .coerceAtLeast(1)
-                CadenceSample(
-                    timestamp = Instant.ofEpochSecond(minuteBucket * 60),
-                    stepsPerMinute = totalSteps.toDouble() / totalSeconds * 60.0
-                )
-            }
-            .sortedBy { it.timestamp }
+        if (records.isNotEmpty()) {
+            Log.d(TAG, "StepsRecord ${records.size}건 → 분당 케이던스 계산")
+            return records
+                .groupBy { it.startTime.epochSecond / 60 }
+                .map { (minuteBucket, bucketRecords) ->
+                    val totalSteps = bucketRecords.sumOf { it.count }
+                    val totalSeconds = bucketRecords
+                        .sumOf { it.endTime.epochSecond - it.startTime.epochSecond }
+                        .coerceAtLeast(1)
+                    CadenceSample(
+                        timestamp = Instant.ofEpochSecond(minuteBucket * 60),
+                        stepsPerMinute = totalSteps.toDouble() / totalSeconds * 60.0
+                    )
+                }
+                .sortedBy { it.timestamp }
+        }
+
+        // Samsung Health는 운동 중 StepsRecord를 세션 단위가 아닌 일별 집계로 HC에 동기화함.
+        // ReadRecordsRequest 필터가 세션 시작 전에 시작된 일별 레코드를 제외하므로
+        // AggregateRequest(겹치는 레코드 포함)로 총 걸음 수를 가져와 평균 케이던스로 대체.
+        Log.d(TAG, "StepsRecord 없음 → AggregateRequest로 평균 케이던스 계산")
+        val aggResponse = client.aggregate(
+            AggregateRequest(
+                metrics = setOf(StepsRecord.COUNT_TOTAL),
+                timeRangeFilter = TimeRangeFilter.between(start, end)
+            )
+        )
+        val totalSteps = aggResponse[StepsRecord.COUNT_TOTAL] ?: 0L
+        if (totalSteps <= 0L) {
+            Log.d(TAG, "스텝 데이터 없음 → 케이던스 계산 불가")
+            return emptyList()
+        }
+
+        val durationSeconds = (end.epochSecond - start.epochSecond).coerceAtLeast(1)
+        val stepsPerMinute = totalSteps.toDouble() / durationSeconds * 60.0
+        Log.d(TAG, "평균 케이던스: %.1f spm (totalSteps=$totalSteps, duration=${durationSeconds}s)".format(stepsPerMinute))
+        return listOf(
+            CadenceSample(
+                timestamp = start,
+                stepsPerMinute = stepsPerMinute
+            )
+        )
     }
 
     suspend fun getSpeedInSession(start: Instant, end: Instant): List<SpeedSample> {
@@ -245,6 +274,7 @@ class HealthDataRepository(private val client: HealthConnectClient) {
             pageToken = response.pageToken
         } while (pageToken != null)
 
+        Log.d(TAG, "OxygenSaturationRecord ${records.size}건 로드 (Samsung Health는 운동 중 SpO2를 연속 측정하지 않으면 0건)")
         return records
             .map { record ->
                 OxygenSaturationSample(
