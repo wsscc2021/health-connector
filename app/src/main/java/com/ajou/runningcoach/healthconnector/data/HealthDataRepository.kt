@@ -111,6 +111,20 @@ class HealthDataRepository(private val client: HealthConnectClient) {
     }
 
     suspend fun getCadenceInSession(start: Instant, end: Instant): List<CadenceSample> {
+        // StepsCadenceRecord 우선 시도 (일반 웨어러블 지원)
+        val fromCadenceRecord = readStepsCadenceRecords(start, end)
+        if (fromCadenceRecord.isNotEmpty()) {
+            Log.d(TAG, "StepsCadenceRecord에서 케이던스 ${fromCadenceRecord.size}건 로드")
+            return fromCadenceRecord
+        }
+
+        // Samsung Health는 StepsCadenceRecord를 HC에 동기화하지 않으므로
+        // StepsRecord(1분 단위)에서 steps/min을 파생
+        Log.d(TAG, "StepsCadenceRecord 없음 → StepsRecord에서 케이던스 파생")
+        return deriveFromStepsRecord(start, end)
+    }
+
+    private suspend fun readStepsCadenceRecords(start: Instant, end: Instant): List<CadenceSample> {
         val rawSamples = mutableListOf<StepsCadenceRecord.Sample>()
         var pageToken: String? = null
 
@@ -132,6 +146,37 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                 CadenceSample(
                     timestamp = Instant.ofEpochSecond(minuteBucket * 60),
                     stepsPerMinute = samples.map { it.rate }.average()
+                )
+            }
+            .sortedBy { it.timestamp }
+    }
+
+    private suspend fun deriveFromStepsRecord(start: Instant, end: Instant): List<CadenceSample> {
+        val records = mutableListOf<StepsRecord>()
+        var pageToken: String? = null
+
+        do {
+            val response = client.readRecords(
+                ReadRecordsRequest(
+                    recordType = StepsRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, end),
+                    pageToken = pageToken
+                )
+            )
+            records.addAll(response.records)
+            pageToken = response.pageToken
+        } while (pageToken != null)
+
+        return records
+            .groupBy { it.startTime.epochSecond / 60 }
+            .map { (minuteBucket, bucketRecords) ->
+                val totalSteps = bucketRecords.sumOf { it.count }
+                val totalSeconds = bucketRecords
+                    .sumOf { it.endTime.epochSecond - it.startTime.epochSecond }
+                    .coerceAtLeast(1)
+                CadenceSample(
+                    timestamp = Instant.ofEpochSecond(minuteBucket * 60),
+                    stepsPerMinute = totalSteps.toDouble() / totalSeconds * 60.0
                 )
             }
             .sortedBy { it.timestamp }
