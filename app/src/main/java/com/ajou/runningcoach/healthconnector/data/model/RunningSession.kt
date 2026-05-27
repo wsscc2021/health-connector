@@ -10,6 +10,8 @@ data class RunningSession(
     val exerciseType: Int = 0,
     val heartRateSamples: List<HeartRateSample> = emptyList(),
     val cadenceSamples: List<CadenceSample> = emptyList(),
+    val speedSamples: List<SpeedSample> = emptyList(),
+    val oxygenSaturationSamples: List<OxygenSaturationSample> = emptyList(),
     val totalSteps: Long = 0,
     val totalDistanceMeters: Double = 0.0
 )

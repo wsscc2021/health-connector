@@ -47,6 +47,24 @@ class SessionUploader(
                 unit = "spm"
             )
         }
-        return heartRateEvents + cadenceEvents
+        val speedEvents = session.speedSamples.map { sample ->
+            BioEvent(
+                eventId = "speed-${session.id}-${sample.timestamp.epochSecond}",
+                sensorType = "speed",
+                measuredAt = sample.timestamp.toString(),
+                value = sample.metersPerSecond.toFloat(),
+                unit = "m/s"
+            )
+        }
+        val spo2Events = session.oxygenSaturationSamples.map { sample ->
+            BioEvent(
+                eventId = "spo2-${session.id}-${sample.timestamp.epochSecond}",
+                sensorType = "oxygen_saturation",
+                measuredAt = sample.timestamp.toString(),
+                value = sample.percentage.toFloat(),
+                unit = "%"
+            )
+        }
+        return heartRateEvents + cadenceEvents + speedEvents + spo2Events
     }
 }

@@ -6,13 +6,17 @@ import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
+import androidx.health.connect.client.records.SpeedRecord
 import androidx.health.connect.client.records.StepsCadenceRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import com.ajou.runningcoach.healthconnector.data.model.CadenceSample
 import com.ajou.runningcoach.healthconnector.data.model.HeartRateSample
+import com.ajou.runningcoach.healthconnector.data.model.OxygenSaturationSample
 import com.ajou.runningcoach.healthconnector.data.model.RunningSession
+import com.ajou.runningcoach.healthconnector.data.model.SpeedSample
 import kotlinx.coroutines.CancellationException
 import java.time.Instant
 
@@ -31,6 +35,8 @@ class HealthDataRepository(private val client: HealthConnectClient) {
             try {
                 val heartRates = getHeartRateInSession(session.startTime, session.endTime)
                 val cadences = getCadenceInSession(session.startTime, session.endTime)
+                val speeds = getSpeedInSession(session.startTime, session.endTime)
+                val oxygenSaturations = getOxygenSaturationInSession(session.startTime, session.endTime)
                 val steps = getStepsInSession(session.startTime, session.endTime)
                 val distance = getDistanceInSession(session.startTime, session.endTime)
 
@@ -42,6 +48,8 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                     exerciseType = session.exerciseType,
                     heartRateSamples = heartRates,
                     cadenceSamples = cadences,
+                    speedSamples = speeds,
+                    oxygenSaturationSamples = oxygenSaturations,
                     totalSteps = steps,
                     totalDistanceMeters = distance
                 )
@@ -111,8 +119,17 @@ class HealthDataRepository(private val client: HealthConnectClient) {
     }
 
     suspend fun getCadenceInSession(start: Instant, end: Instant): List<CadenceSample> {
-        // StepsCadenceRecord 우선 시도 (일반 웨어러블 지원)
-        val fromCadenceRecord = readStepsCadenceRecords(start, end)
+        // READ_STEPS_CADENCE 권한 미승인 시 SecurityException이 발생하므로
+        // 개별 try-catch 처리 — 예외가 바깥 catch에 탈출하면 폴백이 실행되지 않음
+        val fromCadenceRecord = try {
+            readStepsCadenceRecords(start, end)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.d(TAG, "StepsCadenceRecord 읽기 실패 (${e::class.simpleName}): ${e.message}")
+            emptyList()
+        }
+
         if (fromCadenceRecord.isNotEmpty()) {
             Log.d(TAG, "StepsCadenceRecord에서 케이던스 ${fromCadenceRecord.size}건 로드")
             return fromCadenceRecord
@@ -177,6 +194,59 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                 CadenceSample(
                     timestamp = Instant.ofEpochSecond(minuteBucket * 60),
                     stepsPerMinute = totalSteps.toDouble() / totalSeconds * 60.0
+                )
+            }
+            .sortedBy { it.timestamp }
+    }
+
+    suspend fun getSpeedInSession(start: Instant, end: Instant): List<SpeedSample> {
+        val rawSamples = mutableListOf<SpeedRecord.Sample>()
+        var pageToken: String? = null
+
+        do {
+            val response = client.readRecords(
+                ReadRecordsRequest(
+                    recordType = SpeedRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, end),
+                    pageToken = pageToken
+                )
+            )
+            rawSamples.addAll(response.records.flatMap { it.samples })
+            pageToken = response.pageToken
+        } while (pageToken != null)
+
+        return rawSamples
+            .groupBy { it.time.epochSecond / 60 }
+            .map { (minuteBucket, samples) ->
+                SpeedSample(
+                    timestamp = Instant.ofEpochSecond(minuteBucket * 60),
+                    metersPerSecond = samples.map { it.speed.inMetersPerSecond }.average()
+                )
+            }
+            .sortedBy { it.timestamp }
+    }
+
+    suspend fun getOxygenSaturationInSession(start: Instant, end: Instant): List<OxygenSaturationSample> {
+        val records = mutableListOf<OxygenSaturationRecord>()
+        var pageToken: String? = null
+
+        do {
+            val response = client.readRecords(
+                ReadRecordsRequest(
+                    recordType = OxygenSaturationRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, end),
+                    pageToken = pageToken
+                )
+            )
+            records.addAll(response.records)
+            pageToken = response.pageToken
+        } while (pageToken != null)
+
+        return records
+            .map { record ->
+                OxygenSaturationSample(
+                    timestamp = record.time,
+                    percentage = record.percentage.value
                 )
             }
             .sortedBy { it.timestamp }
