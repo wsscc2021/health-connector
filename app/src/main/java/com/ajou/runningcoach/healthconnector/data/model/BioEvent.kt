@@ -5,5 +5,6 @@ data class BioEvent(
     val sensorType: String,
     val measuredAt: String,
     val value: Float,
-    val unit: String
+    val unit: String,
+    val secondaryValue: Float? = null  // blood_pressure: diastolic(mmHg)
 )
