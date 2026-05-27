@@ -31,40 +31,40 @@ class HealthDataRepository(private val client: HealthConnectClient) {
         Log.d(TAG, "전체 운동 세션 수: ${allRecords.size}")
         Log.d(TAG, "운동 타입 목록: ${allRecords.map { it.exerciseType }.distinct()}")
 
-        return allRecords.mapNotNull { session ->
-            try {
-                val heartRates = getHeartRateInSession(session.startTime, session.endTime)
-                val cadences = getCadenceInSession(session.startTime, session.endTime)
-                val speeds = getSpeedInSession(session.startTime, session.endTime)
-                val oxygenSaturations = getOxygenSaturationInSession(session.startTime, session.endTime)
-                val steps = getStepsInSession(session.startTime, session.endTime)
-                val distance = getDistanceInSession(session.startTime, session.endTime)
-
-                RunningSession(
-                    id = session.metadata.id,
-                    startTime = session.startTime,
-                    endTime = session.endTime,
-                    deviceModel = session.metadata.device?.model ?: "unknown",
-                    exerciseType = session.exerciseType,
-                    heartRateSamples = heartRates,
-                    cadenceSamples = cadences,
-                    speedSamples = speeds,
-                    oxygenSaturationSamples = oxygenSaturations,
-                    totalSteps = steps,
-                    totalDistanceMeters = distance
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "세션 ${session.metadata.id} 부가 데이터 로드 실패: ${e.message}")
-                RunningSession(
-                    id = session.metadata.id,
-                    startTime = session.startTime,
-                    endTime = session.endTime,
-                    deviceModel = session.metadata.device?.model ?: "unknown",
-                    exerciseType = session.exerciseType
-                )
+        return allRecords.map { session ->
+            // 각 센서를 독립적으로 fetch — 하나가 실패해도 나머지 데이터는 보존
+            val heartRates = fetchOrEmpty(session.metadata.id, "heart_rate") {
+                getHeartRateInSession(session.startTime, session.endTime)
             }
+            val cadences = fetchOrEmpty(session.metadata.id, "cadence") {
+                getCadenceInSession(session.startTime, session.endTime)
+            }
+            val speeds = fetchOrEmpty(session.metadata.id, "speed") {
+                getSpeedInSession(session.startTime, session.endTime)
+            }
+            val oxygenSaturations = fetchOrEmpty(session.metadata.id, "oxygen_saturation") {
+                getOxygenSaturationInSession(session.startTime, session.endTime)
+            }
+            val steps = fetchOrZero(session.metadata.id, "steps") {
+                getStepsInSession(session.startTime, session.endTime)
+            }
+            val distance = fetchOrZero(session.metadata.id, "distance") {
+                getDistanceInSession(session.startTime, session.endTime)
+            }
+
+            RunningSession(
+                id = session.metadata.id,
+                startTime = session.startTime,
+                endTime = session.endTime,
+                deviceModel = session.metadata.device?.model ?: "unknown",
+                exerciseType = session.exerciseType,
+                heartRateSamples = heartRates,
+                cadenceSamples = cadences,
+                speedSamples = speeds,
+                oxygenSaturationSamples = oxygenSaturations,
+                totalSteps = steps,
+                totalDistanceMeters = distance
+            )
         }
     }
 
@@ -270,5 +270,44 @@ class HealthDataRepository(private val client: HealthConnectClient) {
             )
         )
         return response[DistanceRecord.DISTANCE_TOTAL]?.inMeters ?: 0.0
+    }
+
+    private suspend fun <T> fetchOrEmpty(
+        sessionId: String,
+        name: String,
+        fetch: suspend () -> List<T>
+    ): List<T> = try {
+        fetch()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "세션 $sessionId $name 로드 실패 (${e::class.simpleName}): ${e.message}")
+        emptyList()
+    }
+
+    private suspend fun fetchOrZero(
+        sessionId: String,
+        name: String,
+        fetch: suspend () -> Long
+    ): Long = try {
+        fetch()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "세션 $sessionId $name 로드 실패 (${e::class.simpleName}): ${e.message}")
+        0L
+    }
+
+    private suspend fun fetchOrZero(
+        sessionId: String,
+        name: String,
+        fetch: suspend () -> Double
+    ): Double = try {
+        fetch()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "세션 $sessionId $name 로드 실패 (${e::class.simpleName}): ${e.message}")
+        0.0
     }
 }
