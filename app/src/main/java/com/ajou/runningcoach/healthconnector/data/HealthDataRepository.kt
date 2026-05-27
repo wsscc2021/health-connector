@@ -31,7 +31,8 @@ class HealthDataRepository(private val client: HealthConnectClient) {
         Log.d(TAG, "전체 운동 세션 수: ${allRecords.size}")
         Log.d(TAG, "운동 타입 목록: ${allRecords.map { it.exerciseType }.distinct()}")
 
-        return allRecords.map { session ->
+        val result = mutableListOf<RunningSession>()
+        for (session in allRecords) {
             // 각 센서를 독립적으로 fetch — 하나가 실패해도 나머지 데이터는 보존
             val heartRates = fetchOrEmpty(session.metadata.id, "heart_rate") {
                 getHeartRateInSession(session.startTime, session.endTime)
@@ -48,24 +49,26 @@ class HealthDataRepository(private val client: HealthConnectClient) {
             val steps = fetchOrZero(session.metadata.id, "steps") {
                 getStepsInSession(session.startTime, session.endTime)
             }
-            val distance = fetchOrZero(session.metadata.id, "distance") {
+            val distance = fetchOrZeroDouble(session.metadata.id, "distance") {
                 getDistanceInSession(session.startTime, session.endTime)
             }
-
-            RunningSession(
-                id = session.metadata.id,
-                startTime = session.startTime,
-                endTime = session.endTime,
-                deviceModel = session.metadata.device?.model ?: "unknown",
-                exerciseType = session.exerciseType,
-                heartRateSamples = heartRates,
-                cadenceSamples = cadences,
-                speedSamples = speeds,
-                oxygenSaturationSamples = oxygenSaturations,
-                totalSteps = steps,
-                totalDistanceMeters = distance
+            result.add(
+                RunningSession(
+                    id = session.metadata.id,
+                    startTime = session.startTime,
+                    endTime = session.endTime,
+                    deviceModel = session.metadata.device?.model ?: "unknown",
+                    exerciseType = session.exerciseType,
+                    heartRateSamples = heartRates,
+                    cadenceSamples = cadences,
+                    speedSamples = speeds,
+                    oxygenSaturationSamples = oxygenSaturations,
+                    totalSteps = steps,
+                    totalDistanceMeters = distance
+                )
             )
         }
+        return result
     }
 
     private suspend fun readAllExerciseSessionPages(
@@ -298,7 +301,7 @@ class HealthDataRepository(private val client: HealthConnectClient) {
         0L
     }
 
-    private suspend fun fetchOrZero(
+    private suspend fun fetchOrZeroDouble(
         sessionId: String,
         name: String,
         fetch: suspend () -> Double
