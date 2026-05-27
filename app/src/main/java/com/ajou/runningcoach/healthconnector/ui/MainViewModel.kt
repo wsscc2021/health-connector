@@ -127,7 +127,8 @@ class MainViewModel(
                         _uiState.value = UiState.Error(
                             title = "네트워크 오류",
                             message = "서버에 연결할 수 없습니다.\n인터넷 연결을 확인한 후 다시 시도해 주세요.",
-                            action = ErrorAction.Retry
+                            action = ErrorAction.Retry,
+                            isUploadError = true
                         )
                         return@launch
                     } catch (e: Exception) {
@@ -142,7 +143,8 @@ class MainViewModel(
                     UiState.Error(
                         title = "일부 업로드 실패",
                         message = "${targets.size}개 세션 중 ${failed}개 업로드에 실패했습니다.\n잠시 후 다시 시도해 주세요.",
-                        action = ErrorAction.Retry
+                        action = ErrorAction.Retry,
+                        isUploadError = true
                     )
                 }
             } catch (e: CancellationException) {
@@ -152,7 +154,8 @@ class MainViewModel(
                 _uiState.value = UiState.Error(
                     title = "업로드 오류",
                     message = "업로드 중 예기치 못한 오류가 발생했습니다.\n${e::class.simpleName}: ${e.message}",
-                    action = ErrorAction.Retry
+                    action = ErrorAction.Retry,
+                    isUploadError = true
                 )
             }
         }
@@ -194,7 +197,8 @@ sealed class UiState {
         val title: String,
         val message: String,
         val action: ErrorAction = ErrorAction.None,
-        val style: ErrorStyle = ErrorStyle.Dialog
+        val style: ErrorStyle = ErrorStyle.Dialog,
+        val isUploadError: Boolean = false
     ) : UiState()
 }
 

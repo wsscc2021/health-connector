@@ -1,9 +1,12 @@
 package com.ajou.runningcoach.healthconnector.ui
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.View
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.health.connect.client.HealthConnectClient
@@ -22,6 +25,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var client: HealthConnectClient
+    private lateinit var notificationHelper: UploadNotificationHelper
     private val adapter = SessionAdapter()
 
     private val viewModel: MainViewModel by viewModels {
@@ -31,6 +35,9 @@ class MainActivity : AppCompatActivity() {
             SessionUploader(ApiClient.bioApi, USER_ID)
         )
     }
+
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 결과 무시 — 권한 없으면 알림만 안 뜸 */ }
 
     private val requestPermissions =
         registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
@@ -52,6 +59,11 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        notificationHelper = UploadNotificationHelper(this).also { it.createChannel() }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         if (HealthConnectClient.getSdkStatus(this) == HealthConnectClient.SDK_UNAVAILABLE) {
             showInstallPrompt()
@@ -135,6 +147,7 @@ class MainActivity : AppCompatActivity() {
                 binding.tvStatus.text = "${state.uploaded}개 세션 업로드 완료"
                 adapter.clearSelection()
                 hideError()
+                notificationHelper.notifySuccess(state.uploaded)
             }
             is UiState.Empty -> {
                 binding.progressBar.visibility = View.GONE
@@ -147,6 +160,9 @@ class MainActivity : AppCompatActivity() {
             is UiState.Error -> {
                 binding.progressBar.visibility = View.GONE
                 binding.tvStatus.text = state.title
+                if (state.isUploadError) {
+                    notificationHelper.notifyFailure("${state.title}: ${state.message}")
+                }
                 when (state.style) {
                     // 가벼운 안내는 Snackbar로
                     ErrorStyle.Snackbar -> Snackbar
