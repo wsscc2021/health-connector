@@ -38,16 +38,15 @@ class SessionUploader(
                 unit = "bpm"
             )
         }
-        val bloodPressureEvents = session.bloodPressureSamples.map { sample ->
+        val cadenceEvents = session.cadenceSamples.map { sample ->
             BioEvent(
-                eventId = "bp-${session.id}-${sample.timestamp.epochSecond}",
-                sensorType = "blood_pressure",
+                eventId = "cadence-${session.id}-${sample.timestamp.epochSecond}",
+                sensorType = "cadence",
                 measuredAt = sample.timestamp.toString(),
-                value = sample.systolicMmHg.toFloat(),       // systolic
-                unit = "mmHg",
-                secondaryValue = sample.diastolicMmHg.toFloat() // diastolic
+                value = sample.stepsPerMinute.toFloat(),
+                unit = "spm"
             )
         }
-        return heartRateEvents + bloodPressureEvents
+        return heartRateEvents + cadenceEvents
     }
 }

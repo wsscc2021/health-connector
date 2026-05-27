@@ -2,8 +2,7 @@ package com.ajou.runningcoach.healthconnector.data.model
 
 import java.time.Instant
 
-data class BloodPressureSample(
+data class CadenceSample(
     val timestamp: Instant,
-    val systolicMmHg: Double,
-    val diastolicMmHg: Double
+    val stepsPerMinute: Double
 )

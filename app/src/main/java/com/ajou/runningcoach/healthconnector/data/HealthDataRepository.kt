@@ -3,14 +3,14 @@ package com.ajou.runningcoach.healthconnector.data
 import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.request.AggregateRequest
-import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.StepsCadenceRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
-import com.ajou.runningcoach.healthconnector.data.model.BloodPressureSample
+import com.ajou.runningcoach.healthconnector.data.model.CadenceSample
 import com.ajou.runningcoach.healthconnector.data.model.HeartRateSample
 import com.ajou.runningcoach.healthconnector.data.model.RunningSession
 import kotlinx.coroutines.CancellationException
@@ -30,7 +30,7 @@ class HealthDataRepository(private val client: HealthConnectClient) {
         return allRecords.mapNotNull { session ->
             try {
                 val heartRates = getHeartRateInSession(session.startTime, session.endTime)
-                val bloodPressures = getBloodPressureInSession(session.startTime, session.endTime)
+                val cadences = getCadenceInSession(session.startTime, session.endTime)
                 val steps = getStepsInSession(session.startTime, session.endTime)
                 val distance = getDistanceInSession(session.startTime, session.endTime)
 
@@ -41,7 +41,7 @@ class HealthDataRepository(private val client: HealthConnectClient) {
                     deviceModel = session.metadata.device?.model ?: "unknown",
                     exerciseType = session.exerciseType,
                     heartRateSamples = heartRates,
-                    bloodPressureSamples = bloodPressures,
+                    cadenceSamples = cadences,
                     totalSteps = steps,
                     totalDistanceMeters = distance
                 )
@@ -110,29 +110,31 @@ class HealthDataRepository(private val client: HealthConnectClient) {
             .sortedBy { it.timestamp }
     }
 
-    suspend fun getBloodPressureInSession(start: Instant, end: Instant): List<BloodPressureSample> {
-        val result = mutableListOf<BloodPressureRecord>()
+    suspend fun getCadenceInSession(start: Instant, end: Instant): List<CadenceSample> {
+        val rawSamples = mutableListOf<StepsCadenceRecord.Sample>()
         var pageToken: String? = null
 
         do {
             val response = client.readRecords(
                 ReadRecordsRequest(
-                    recordType = BloodPressureRecord::class,
+                    recordType = StepsCadenceRecord::class,
                     timeRangeFilter = TimeRangeFilter.between(start, end),
                     pageToken = pageToken
                 )
             )
-            result.addAll(response.records)
+            rawSamples.addAll(response.records.flatMap { it.samples })
             pageToken = response.pageToken
         } while (pageToken != null)
 
-        return result.map { record ->
-            BloodPressureSample(
-                timestamp = record.time,
-                systolicMmHg = record.systolic.inMillimetersOfMercury,
-                diastolicMmHg = record.diastolic.inMillimetersOfMercury
-            )
-        }.sortedBy { it.timestamp }
+        return rawSamples
+            .groupBy { it.time.epochSecond / 60 }
+            .map { (minuteBucket, samples) ->
+                CadenceSample(
+                    timestamp = Instant.ofEpochSecond(minuteBucket * 60),
+                    stepsPerMinute = samples.map { it.rate }.average()
+                )
+            }
+            .sortedBy { it.timestamp }
     }
 
     private suspend fun getStepsInSession(start: Instant, end: Instant): Long {
