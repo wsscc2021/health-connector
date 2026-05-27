@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- debug BASE_URL(http://)을 위해 해당 도메인만 cleartext 허용 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">running.wsk-skill53.link</domain>
+    </domain-config>
+</network-security-config>
